@@ -15,6 +15,7 @@ use ratatui::{
     DefaultTerminal, Frame,
     layout::{Constraint, Flex, Layout, Rect},
     style::Stylize,
+    symbols::border,
     text::Line,
     widgets::{Block, Paragraph},
 };
@@ -101,7 +102,19 @@ fn draw(frame: &mut Frame, params: &[Parameter], selected: usize) {
 }
 
 fn render_controls(frame: &mut Frame, area: Rect, params: &[Parameter], selected: usize) {
-    let block = Block::bordered().title(" SingingMaterials ");
+    let title = Line::from("  Singing Materials  ").bold();
+    let instructions = Line::from(vec![
+        " Select Param ".into(),
+        "<←/→> ".bold(),
+        " Update Param ".into(),
+        "<↑/↓> ".bold(),
+        " Quit ".into(),
+        "<Ctrl+C> ".red().bold(),
+    ]);
+    let block = Block::bordered()
+        .title(title.centered())
+        .title_bottom(instructions.right_aligned())
+        .border_set(border::THICK);
     let inner = block.inner(area);
     frame.render_widget(block, area);
 
