@@ -11,24 +11,29 @@ use dsp_core::{
     },
 };
 use futures::StreamExt;
+use ratatui::prelude::Widget;
+use ratatui::symbols;
 use ratatui::{
     DefaultTerminal, Frame,
     layout::{Constraint, Flex, Layout, Rect},
-    style::Stylize,
+    style::{Color, Style, Stylize},
     symbols::border,
     text::Line,
-    widgets::{Block, Paragraph},
+    widgets::{Axis, Block, Chart, Dataset, GraphType, Paragraph},
 };
 
-use crate::{SharedEngine, log};
+use crate::{SAMPLE_HISTORY_SIZE, SampleHistory, SharedEngine, log, utils::get_mag_spectrum};
 
 const FRAME_INTERVAL: Duration = Duration::from_millis(33);
 const PARAM_WIDTH: u16 = 9;
 const PARAM_HEIGHT: u16 = 4;
 
-pub async fn run(engine: &'static SharedEngine) -> std::io::Result<()> {
+pub async fn run(
+    engine: &'static SharedEngine,
+    sample_history: &'static SampleHistory,
+) -> std::io::Result<()> {
     let mut terminal = ratatui::init();
-    let result = event_loop(&mut terminal, engine).await;
+    let result = event_loop(&mut terminal, engine, sample_history).await;
     ratatui::restore();
     result
 }
@@ -36,6 +41,7 @@ pub async fn run(engine: &'static SharedEngine) -> std::io::Result<()> {
 async fn event_loop(
     terminal: &mut DefaultTerminal,
     engine: &'static SharedEngine,
+    sample_history: &'static SampleHistory,
 ) -> std::io::Result<()> {
     let mut events = EventStream::new();
     let mut ticker = tokio::time::interval(FRAME_INTERVAL);
@@ -44,8 +50,9 @@ async fn event_loop(
     loop {
         tokio::select! {
             _ = ticker.tick() => {
-                let params = get_parameters(engine);
-                terminal.draw(|frame| draw(frame, &params, selected))?;
+                let (params, sample_rate) = get_parameters_and_sample_rate(engine);
+                let history = get_sample_history(sample_history);
+                terminal.draw(|frame| draw(frame, &params, selected, history, sample_rate))?;
             }
             event = events.next() => match event {
                 Some(Ok(Event::Key(key))) if key.kind == KeyEventKind::Press => {
@@ -67,14 +74,22 @@ fn is_quit(key: KeyEvent) -> bool {
     ctrl_c || matches!(key.code, KeyCode::Char('q') | KeyCode::Esc)
 }
 
-fn get_parameters(engine: &SharedEngine) -> Vec<Parameter> {
+fn get_parameters_and_sample_rate(engine: &SharedEngine) -> (Vec<Parameter>, u32) {
     let engine = engine.lock().unwrap();
-    engine
-        .get_parameters()
-        .iter()
-        .chain(engine.get_envelope_parameters())
-        .cloned()
-        .collect()
+    (
+        engine
+            .get_parameters()
+            .iter()
+            .chain(engine.get_envelope_parameters())
+            .cloned()
+            .collect(),
+        engine.get_sample_rate(),
+    )
+}
+
+fn get_sample_history(sample_history: &SampleHistory) -> Vec<f32> {
+    let history = sample_history.lock().unwrap();
+    history.clone().into_iter().collect()
 }
 
 fn handle_control_key(engine: &SharedEngine, code: KeyCode, selected: &mut usize) {
@@ -90,13 +105,20 @@ fn handle_control_key(engine: &SharedEngine, code: KeyCode, selected: &mut usize
     }
 }
 
-fn draw(frame: &mut Frame, params: &[Parameter], selected: usize) {
+fn draw(
+    frame: &mut Frame,
+    params: &[Parameter],
+    selected: usize,
+    sample_history: Vec<f32>,
+    sample_rate: u32,
+) {
     let [left, logs] =
         Layout::horizontal([Constraint::Ratio(2, 3), Constraint::Ratio(1, 3)]).areas(frame.area());
     let [top_left, bottom_left] =
         Layout::vertical([Constraint::Ratio(1, 2), Constraint::Ratio(1, 2)]).areas(left);
 
     render_controls(frame, top_left, params, selected);
+    render_visualizations(frame, bottom_left, sample_history, sample_rate);
     frame.render_widget(Block::bordered(), bottom_left);
     render_logs(frame, logs);
 }
@@ -153,6 +175,78 @@ fn render_controls(frame: &mut Frame, area: Rect, params: &[Parameter], selected
         let text = format!("{}\n↑\n{}\n↓", param.get_name(), value);
         frame.render_widget(Paragraph::new(text).centered().block(cell_block), *cell);
     }
+}
+
+fn render_visualizations(
+    frame: &mut Frame,
+    area: Rect,
+    sample_history: Vec<f32>,
+    sample_rate: u32,
+) {
+    let visualization_subsections =
+        Layout::horizontal([Constraint::Percentage(50), Constraint::Percentage(50)])
+            .spacing(1)
+            .split(area);
+
+    // waveform
+    let index_sample_pairs: Vec<(f64, f64)> = sample_history
+        .iter()
+        .enumerate()
+        .map(|(i, v)| (i as f64, *v as f64))
+        .collect();
+
+    let waveform_dataset = Dataset::default()
+        .marker(symbols::Marker::Braille)
+        .graph_type(GraphType::Line)
+        .style(Style::default().fg(Color::Red))
+        .data(&index_sample_pairs);
+
+    let waveform_chart = Chart::new(vec![waveform_dataset])
+        .block(Block::bordered())
+        .x_axis(
+            Axis::default()
+                .bounds([0.0, SAMPLE_HISTORY_SIZE as f64])
+                .style(Style::default().fg(Color::Gray)),
+        )
+        .y_axis(
+            Axis::default()
+                .bounds([-1.0, 1.0])
+                .style(Style::default().fg(Color::Gray)),
+        );
+    frame.render_widget(waveform_chart, visualization_subsections[0]);
+
+    // magnitude spectrum (logarithmic x-axis)
+    // TODO: add x-axis labels (non-trivial to do nice octave-spaced labels in ratatui; leaving for now)
+    let min_freq = sample_rate as f64 / SAMPLE_HISTORY_SIZE as f64;
+    let max_freq = sample_rate as f64 / 2.0;
+
+    let samples = sample_history.iter().map(|s| *s).collect();
+    let freq_mag_pairs: Vec<(f64, f64)> = get_mag_spectrum(&samples, sample_rate)
+        .into_iter()
+        .filter(|(freq, _)| *freq >= min_freq)
+        .map(|(freq, mag)| (freq.log10(), mag))
+        .collect();
+    let mag_dataset = Dataset::default()
+        .marker(symbols::Marker::Braille)
+        .graph_type(GraphType::Line)
+        .style(Style::default().fg(Color::Yellow))
+        .data(&freq_mag_pairs);
+
+    let mag_chart = Chart::new(vec![mag_dataset])
+        .block(Block::bordered())
+        .x_axis(
+            Axis::default()
+                .bounds([min_freq.log10(), max_freq.log10()])
+                .style(Style::default().fg(Color::Gray))
+                .title("freq (Hz)"),
+        )
+        .y_axis(
+            Axis::default()
+                .bounds([0.0, 30.0])
+                .style(Style::default().fg(Color::Gray))
+                .title("magnitude"),
+        );
+    frame.render_widget(mag_chart, visualization_subsections[1]);
 }
 
 fn render_logs(frame: &mut Frame, area: Rect) {

@@ -4,9 +4,9 @@ use cpal::{
 };
 use dsp_core::{DEFAULT_SAMPLE_RATE, engines::singing_materials::SingingMaterials};
 
-use crate::{SharedEngine, log};
+use crate::{SampleHistory, SharedEngine, log};
 
-pub async fn audio_handler(engine: &'static SharedEngine) {
+pub async fn audio_handler(engine: &'static SharedEngine, sample_history: &'static SampleHistory) {
     let Some(device) = cpal::default_host().default_output_device() else {
         log::push("No default audio output device found");
         return;
@@ -35,7 +35,7 @@ pub async fn audio_handler(engine: &'static SharedEngine) {
         config,
         move |output: &mut [f32], _| {
             let mut engine = engine.lock().unwrap();
-            audio_output(&mut engine, output, channels);
+            audio_output(&mut engine, output, channels, sample_history);
         },
         |err| log::push(format!("audio stream error: {err}")),
         None,
@@ -62,8 +62,18 @@ pub async fn audio_handler(engine: &'static SharedEngine) {
     std::future::pending::<()>().await;
 }
 
-fn audio_output(engine: &mut SingingMaterials, output: &mut [f32], channels: usize) {
+fn audio_output(
+    engine: &mut SingingMaterials,
+    output: &mut [f32],
+    channels: usize,
+    sample_history: &'static SampleHistory,
+) {
     output.chunks_mut(channels).for_each(|frame| {
-        frame.fill(engine.next().unwrap_or(0.0));
+        let sample = engine.next().unwrap_or(0.0);
+        frame.fill(sample);
+
+        let mut history = sample_history.lock().unwrap();
+        history.pop_front();
+        history.push_back(sample);
     });
 }
