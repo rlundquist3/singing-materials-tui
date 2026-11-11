@@ -498,7 +498,7 @@ dependencies = [
 [[package]]
 name = "dsp-core"
 version = "0.1.0"
-source = "git+https://github.com/rlundquist3/synths.git?rev=b13977d#b13977d90fcf623a6dd1bf02fb63ec67c793db6a"
+source = "git+https://github.com/rlundquist3/synths.git?rev=dec7d1a#dec7d1ad8ec5963f08241e4ea9b6b912f5df25fb"
 dependencies = [
  "heapless",
  "micromath",

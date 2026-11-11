@@ -23,5 +23,5 @@ async fn main() -> std::io::Result<()> {
     tokio::spawn(midi_buffer_handler(engine));
 
     // The UI runs on the main task; the program exits when it returns
-    ui::run().await
+    ui::run(engine).await
 }
