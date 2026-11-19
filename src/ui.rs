@@ -3,7 +3,7 @@ use std::time::Duration;
 use crossterm::event::{Event, EventStream, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use dsp_core::{
     engines::Engine,
-    engines::singing_materials::material::MATERIALS,
+    engines::singing_materials,
     parameter::{
         Parameter,
         ParameterChange::{Decrement, Increment},
@@ -50,9 +50,9 @@ async fn event_loop(
     loop {
         tokio::select! {
             _ = ticker.tick() => {
-                let (params, sample_rate) = get_parameters_and_sample_rate(engine);
+                let (material_name, params, sample_rate) = get_name_parameters_and_sample_rate(engine);
                 let history = get_sample_history(sample_history);
-                terminal.draw(|frame| draw(frame, &params, selected, history, sample_rate))?;
+                terminal.draw(|frame| draw(frame, material_name, &params, selected, history, sample_rate))?;
             }
             event = events.next() => match event {
                 Some(Ok(Event::Key(key))) if key.kind == KeyEventKind::Press => {
@@ -74,9 +74,10 @@ fn is_quit(key: KeyEvent) -> bool {
     ctrl_c || matches!(key.code, KeyCode::Char('q') | KeyCode::Esc)
 }
 
-fn get_parameters_and_sample_rate(engine: &SharedEngine) -> (Vec<Parameter>, u32) {
+fn get_name_parameters_and_sample_rate(engine: &SharedEngine) -> (&str, Vec<Parameter>, u32) {
     let engine = engine.lock().unwrap();
     (
+        engine.get_material_name(),
         engine
             .get_parameters()
             .iter()
@@ -107,6 +108,7 @@ fn handle_control_key(engine: &SharedEngine, code: KeyCode, selected: &mut usize
 
 fn draw(
     frame: &mut Frame,
+    material_name: &str,
     params: &[Parameter],
     selected: usize,
     sample_history: Vec<f32>,
@@ -117,13 +119,19 @@ fn draw(
     let [top_left, bottom_left] =
         Layout::vertical([Constraint::Ratio(1, 2), Constraint::Ratio(1, 2)]).areas(left);
 
-    render_controls(frame, top_left, params, selected);
+    render_controls(frame, top_left, material_name, params, selected);
     render_visualizations(frame, bottom_left, sample_history, sample_rate);
     frame.render_widget(Block::bordered(), bottom_left);
     render_logs(frame, logs);
 }
 
-fn render_controls(frame: &mut Frame, area: Rect, params: &[Parameter], selected: usize) {
+fn render_controls(
+    frame: &mut Frame,
+    area: Rect,
+    material_name: &str,
+    params: &[Parameter],
+    selected: usize,
+) {
     let title = Line::from("  Singing Materials  ").bold();
     let instructions = Line::from(vec![
         " Select Param ".into(),
@@ -161,7 +169,7 @@ fn render_controls(frame: &mut Frame, area: Rect, params: &[Parameter], selected
         };
 
         let value = match i {
-            0 => MATERIALS[param.get_value() as usize].name,
+            0 => material_name,
             1 => match param.get_value() {
                 1.0 => "Sine",
                 2.0 => "Saw",
