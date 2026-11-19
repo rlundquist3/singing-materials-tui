@@ -1,9 +1,7 @@
-use std::time::Duration;
-
+use core::fmt::Write;
 use crossterm::event::{Event, EventStream, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use dsp_core::{
-    engines::Engine,
-    engines::singing_materials,
+    engines::{Engine, singing_materials},
     parameter::{
         Parameter,
         ParameterChange::{Decrement, Increment},
@@ -11,6 +9,7 @@ use dsp_core::{
     },
 };
 use futures::StreamExt;
+use heapless::String;
 use ratatui::prelude::Widget;
 use ratatui::symbols;
 use ratatui::{
@@ -21,6 +20,7 @@ use ratatui::{
     text::Line,
     widgets::{Axis, Block, Chart, Dataset, GraphType, Paragraph},
 };
+use std::time::Duration;
 
 use crate::{SAMPLE_HISTORY_SIZE, SampleHistory, SharedEngine, log, utils::get_mag_spectrum};
 
@@ -50,9 +50,9 @@ async fn event_loop(
     loop {
         tokio::select! {
             _ = ticker.tick() => {
-                let (material_name, params, sample_rate) = get_name_parameters_and_sample_rate(engine);
+                let engine_state = get_engine_state(engine);
                 let history = get_sample_history(sample_history);
-                terminal.draw(|frame| draw(frame, material_name, &params, selected, history, sample_rate))?;
+                terminal.draw(|frame| draw(frame, engine_state, selected, history))?;
             }
             event = events.next() => match event {
                 Some(Ok(Event::Key(key))) if key.kind == KeyEventKind::Press => {
@@ -74,18 +74,38 @@ fn is_quit(key: KeyEvent) -> bool {
     ctrl_c || matches!(key.code, KeyCode::Char('q') | KeyCode::Esc)
 }
 
-fn get_name_parameters_and_sample_rate(engine: &SharedEngine) -> (&str, Vec<Parameter>, u32) {
+#[derive(Clone)]
+struct EngineState {
+    material: String<32>,
+    temp: String<8>,
+    species: String<8>,
+    parameters: Vec<Parameter>,
+    sample_rate: u32,
+}
+
+fn get_engine_state(engine: &SharedEngine) -> EngineState {
+    let mut material: String<32> = String::new();
+    let mut temp: String<8> = String::new();
+    let mut species: String<8> = String::new();
+
     let engine = engine.lock().unwrap();
-    (
-        engine.get_material_name(),
-        engine
+
+    write!(material, "{}", engine.get_material_name()).unwrap();
+    write!(temp, "{}", engine.get_current_temp()).unwrap();
+    write!(species, "{}", engine.get_current_species()).unwrap();
+
+    EngineState {
+        material,
+        temp,
+        species,
+        parameters: engine
             .get_parameters()
             .iter()
             .chain(engine.get_envelope_parameters())
             .cloned()
             .collect(),
-        engine.get_sample_rate(),
-    )
+        sample_rate: engine.get_sample_rate(),
+    }
 }
 
 fn get_sample_history(sample_history: &SampleHistory) -> Vec<f32> {
@@ -106,32 +126,22 @@ fn handle_control_key(engine: &SharedEngine, code: KeyCode, selected: &mut usize
     }
 }
 
-fn draw(
-    frame: &mut Frame,
-    material_name: &str,
-    params: &[Parameter],
-    selected: usize,
-    sample_history: Vec<f32>,
-    sample_rate: u32,
-) {
+fn draw(frame: &mut Frame, engine_state: EngineState, selected: usize, sample_history: Vec<f32>) {
     let [left, logs] =
         Layout::horizontal([Constraint::Ratio(2, 3), Constraint::Ratio(1, 3)]).areas(frame.area());
     let [top_left, bottom_left] =
         Layout::vertical([Constraint::Ratio(1, 2), Constraint::Ratio(1, 2)]).areas(left);
 
-    render_controls(frame, top_left, material_name, params, selected);
+    let sample_rate = engine_state.sample_rate;
+    render_controls(frame, top_left, engine_state, selected);
     render_visualizations(frame, bottom_left, sample_history, sample_rate);
     frame.render_widget(Block::bordered(), bottom_left);
     render_logs(frame, logs);
 }
 
-fn render_controls(
-    frame: &mut Frame,
-    area: Rect,
-    material_name: &str,
-    params: &[Parameter],
-    selected: usize,
-) {
+fn render_controls(frame: &mut Frame, area: Rect, engine_state: EngineState, selected: usize) {
+    let params = &engine_state.parameters;
+
     let title = Line::from("  Singing Materials  ").bold();
     let instructions = Line::from(vec![
         " Select Param ".into(),
@@ -169,7 +179,7 @@ fn render_controls(
         };
 
         let value = match i {
-            0 => material_name,
+            0 => &engine_state.material,
             1 => match param.get_value() {
                 1.0 => "Sine",
                 2.0 => "Saw",
@@ -177,6 +187,7 @@ fn render_controls(
                 4.0 => "Tri",
                 _ => "",
             },
+            2 => &engine_state.species,
             _ => &format!("{:.1}", param.get_value()),
         };
 

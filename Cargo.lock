@@ -498,7 +498,6 @@ dependencies = [
 [[package]]
 name = "dsp-core"
 version = "0.1.0"
-source = "git+https://github.com/rlundquist3/synths.git?rev=ec7c4d3#ec7c4d3eb989f916cb0a726f43117b6441cac835"
 dependencies = [
  "heapless",
  "micromath",
@@ -736,9 +735,9 @@ dependencies = [
 
 [[package]]
 name = "heapless"
-version = "0.9.3"
+version = "0.9.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "25ba4bd83f9415b58b4ed8dc5714c76e626a105be4646c02630ad730ad3b5aa4"
+checksum = "411fdef4df93751117bd9ef8caa0e7f99c65dafec5bd84313eb8e2fdd75e32f2"
 dependencies = [
  "hash32",
  "stable_deref_trait",
@@ -1932,6 +1931,7 @@ dependencies = [
  "crossterm",
  "dsp-core",
  "futures",
+ "heapless",
  "midir",
  "ratatui",
  "rustfft",
