@@ -28,6 +28,14 @@ const FRAME_INTERVAL: Duration = Duration::from_millis(33);
 const PARAM_WIDTH: u16 = 9;
 const PARAM_HEIGHT: u16 = 4;
 
+// UI palette — warm gold accents against cool mint/amber charts, tuned for dark terminals
+const COLOR_TITLE: Color = Color::Rgb(238, 200, 130);
+const COLOR_SELECTED_BG: Color = Color::Rgb(88, 78, 168);
+const COLOR_WAVEFORM: Color = Color::Rgb(104, 224, 183);
+const COLOR_SPECTRUM: Color = Color::Rgb(247, 164, 96);
+const COLOR_AXIS: Color = Color::Rgb(112, 122, 142);
+const COLOR_QUIT: Color = Color::Rgb(240, 122, 132);
+
 pub async fn run(
     engine: &'static SharedEngine,
     sample_history: &'static SampleHistory,
@@ -142,19 +150,20 @@ fn draw(frame: &mut Frame, engine_state: EngineState, selected: usize, sample_hi
 fn render_controls(frame: &mut Frame, area: Rect, engine_state: EngineState, selected: usize) {
     let params = &engine_state.parameters;
 
-    let title = Line::from("  Singing Materials  ").bold();
+    let title = Line::from("  Singing Materials  ").fg(COLOR_TITLE).bold();
     let instructions = Line::from(vec![
         " Select Param ".into(),
         "<←/→> ".bold(),
         " Update Param ".into(),
         "<↑/↓> ".bold(),
         " Quit ".into(),
-        "<Ctrl+C> ".red().bold(),
+        "<Ctrl+C> ".fg(COLOR_QUIT).bold(),
     ]);
     let block = Block::bordered()
         .title(title.centered())
         .title_bottom(instructions.right_aligned())
-        .border_set(border::THICK);
+        .border_set(border::THICK)
+        .border_style(Style::default().fg(COLOR_AXIS));
     let inner = block.inner(area);
     frame.render_widget(block, area);
 
@@ -173,7 +182,7 @@ fn render_controls(frame: &mut Frame, area: Rect, engine_state: EngineState, sel
 
     for (i, (param, cell)) in params.iter().zip(cells.iter()).enumerate() {
         let cell_block = if i == selected {
-            Block::new().on_cyan()
+            Block::new().bg(COLOR_SELECTED_BG)
         } else {
             Block::new()
         };
@@ -188,6 +197,7 @@ fn render_controls(frame: &mut Frame, area: Rect, engine_state: EngineState, sel
                 _ => "",
             },
             2 => &engine_state.species,
+            3 => &engine_state.temp,
             _ => &format!("{:.1}", param.get_value()),
         };
 
@@ -217,20 +227,20 @@ fn render_visualizations(
     let waveform_dataset = Dataset::default()
         .marker(symbols::Marker::Braille)
         .graph_type(GraphType::Line)
-        .style(Style::default().fg(Color::Red))
+        .style(Style::default().fg(COLOR_WAVEFORM))
         .data(&index_sample_pairs);
 
     let waveform_chart = Chart::new(vec![waveform_dataset])
-        .block(Block::bordered())
+        .block(Block::bordered().border_style(Style::default().fg(COLOR_AXIS)))
         .x_axis(
             Axis::default()
                 .bounds([0.0, SAMPLE_HISTORY_SIZE as f64])
-                .style(Style::default().fg(Color::Gray)),
+                .style(Style::default().fg(COLOR_AXIS)),
         )
         .y_axis(
             Axis::default()
                 .bounds([-1.0, 1.0])
-                .style(Style::default().fg(Color::Gray)),
+                .style(Style::default().fg(COLOR_AXIS)),
         );
     frame.render_widget(waveform_chart, visualization_subsections[0]);
 
@@ -248,28 +258,30 @@ fn render_visualizations(
     let mag_dataset = Dataset::default()
         .marker(symbols::Marker::Braille)
         .graph_type(GraphType::Line)
-        .style(Style::default().fg(Color::Yellow))
+        .style(Style::default().fg(COLOR_SPECTRUM))
         .data(&freq_mag_pairs);
 
     let mag_chart = Chart::new(vec![mag_dataset])
-        .block(Block::bordered())
+        .block(Block::bordered().border_style(Style::default().fg(COLOR_AXIS)))
         .x_axis(
             Axis::default()
                 .bounds([min_freq.log10(), max_freq.log10()])
-                .style(Style::default().fg(Color::Gray))
+                .style(Style::default().fg(COLOR_AXIS))
                 .title("freq (Hz)"),
         )
         .y_axis(
             Axis::default()
                 .bounds([0.0, 30.0])
-                .style(Style::default().fg(Color::Gray))
+                .style(Style::default().fg(COLOR_AXIS))
                 .title("magnitude"),
         );
     frame.render_widget(mag_chart, visualization_subsections[1]);
 }
 
 fn render_logs(frame: &mut Frame, area: Rect) {
-    let block = Block::bordered().title(" Logs ");
+    let block = Block::bordered()
+        .title(" Logs ")
+        .border_style(Style::default().fg(COLOR_AXIS));
     let visible = block.inner(area).height as usize;
 
     let lines = log::snapshot();

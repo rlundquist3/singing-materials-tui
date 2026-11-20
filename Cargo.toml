@@ -9,7 +9,7 @@ crossterm = { version = "0.29.0", features = ["event-stream"] }
 midir = "0.11.0"
 ratatui = "0.30.2"
 rustfft = "6.4.1"
-dsp-core = { git = "https://github.com/rlundquist3/synths.git", rev = "5b5cb91" }
+dsp-core = { git = "https://github.com/rlundquist3/synths.git", rev = "52fdc47" }
 tokio = { version = "1.53.1", features = [
     "macros",
     "rt-multi-thread",
